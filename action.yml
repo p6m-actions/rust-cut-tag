@@ -1,36 +1,151 @@
 name: "Rust Cut Tag"
-description: "A simple GitHub Action that prints a greeting"
+description: "Bump version in Cargo.toml and create a git tag for Rust projects"
 author: "Jimmie Fulton <jimmie.fulton@gmail.com>"
 
 # Define the inputs for this action
 inputs:
-  who-to-greet:
-    description: "Who to greet"
-    required: true
-    default: "World"
-  message:
-    description: "Custom message to include"
+  version-level:
+    description: "Version level to bump (patch, minor, or major)"
     required: false
-    default: "Hello"
+    default: "patch"
+  working-directory:
+    description: "Working directory containing Cargo.toml"
+    required: false
+    default: "."
+  commit-changes:
+    description: "Whether to commit the version changes"
+    required: false
+    default: "true"
+  commit-message:
+    description: "Custom commit message. Use {version} as placeholder for the new version"
+    required: false
+    default: "Bump version to {version} [skip ci]"
+  skip-push:
+    description: "Skip pushing changes and tags (useful for testing)"
+    required: false
+    default: "false"
+  workspace:
+    description: "Apply to all workspace members"
+    required: false
+    default: "true"
+  no-git-commit:
+    description: "Do not create a git commit (cargo-release option)"
+    required: false
+    default: "false"
+  no-git-tag:
+    description: "Do not create a git tag (cargo-release option)"
+    required: false
+    default: "false"
+  no-git-push:
+    description: "Do not push to git (cargo-release option)"
+    required: false
+    default: "false"
 
 # Define the outputs for this action
 outputs:
-  time:
-    description: "The time we greeted you"
-    value: ${{ steps.hello.outputs.time }}
+  version:
+    description: "The new version number"
+    value: ${{ steps.bump-version.outputs.version }}
+  tag:
+    description: "The created git tag"
+    value: ${{ steps.bump-version.outputs.tag }}
 
 # Define the runs configuration
 runs:
   using: "composite"
   steps:
-    - name: Hello step
-      id: hello
+    - name: Install cargo-release
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: cargo-release
+        args: --no-default-features
+
+    - name: Configure Git
       shell: bash
       run: |
-        echo "${{ inputs.message }}, ${{ inputs.who-to-greet }}!"
-        echo "time=$(date)" >> $GITHUB_OUTPUT
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+    - name: Bump version and create tag
+      id: bump-version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -e
+
+        # Validate version-level input
+        VERSION_LEVEL="${{ inputs.version-level }}"
+        if [[ ! "$VERSION_LEVEL" =~ ^(patch|minor|major)$ ]]; then
+          echo "Error: version-level must be 'patch', 'minor', or 'major'"
+          exit 1
+        fi
+
+        # Build cargo release command
+        CMD="cargo release version $VERSION_LEVEL --execute --no-confirm"
+
+        # Add workspace flag if enabled
+        if [[ "${{ inputs.workspace }}" == "true" ]]; then
+          CMD="$CMD --workspace"
+        fi
+
+        # Add git-related flags
+        if [[ "${{ inputs.no-git-commit }}" == "true" ]]; then
+          CMD="$CMD --no-git-commit"
+        fi
+
+        if [[ "${{ inputs.no-git-tag }}" == "true" ]]; then
+          CMD="$CMD --no-git-tag"
+        fi
+
+        if [[ "${{ inputs.no-git-push }}" == "true" ]]; then
+          CMD="$CMD --no-git-push"
+        fi
+
+        echo "Executing: $CMD"
+        $CMD
+
+        # Get the new version from Cargo.toml
+        if command -v toml &> /dev/null; then
+          NEW_VERSION=$(toml get Cargo.toml package.version | tr -d '"')
+        else
+          NEW_VERSION=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
+        fi
+
+        echo "New version: $NEW_VERSION"
+        TAG="v$NEW_VERSION"
+        echo "Tag: $TAG"
+
+        echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+        # Handle custom commit and push logic if cargo-release didn't do it
+        if [[ "${{ inputs.no-git-commit }}" == "false" && "${{ inputs.commit-changes }}" == "true" ]]; then
+          # cargo-release already committed
+          :
+        elif [[ "${{ inputs.no-git-commit }}" == "true" && "${{ inputs.commit-changes }}" == "true" ]]; then
+          # We need to commit manually
+          COMMIT_MESSAGE="${{ inputs.commit-message }}"
+          COMMIT_MESSAGE="${COMMIT_MESSAGE//\{version\}/$NEW_VERSION}"
+
+          git add -A
+          git commit -m "$COMMIT_MESSAGE" || echo "No changes to commit"
+
+          if [[ "${{ inputs.no-git-tag }}" == "true" ]]; then
+            git tag "$TAG"
+          fi
+        fi
+
+        # Push if needed
+        if [[ "${{ inputs.skip-push }}" != "true" && "${{ inputs.no-git-push }}" == "true" ]]; then
+          if [[ "${{ inputs.commit-changes }}" == "true" ]]; then
+            git push origin HEAD
+          fi
+          if [[ "${{ inputs.no-git-tag }}" != "true" ]] || git tag -l "$TAG" | grep -q "$TAG"; then
+            git push origin "$TAG"
+          fi
+        fi
 
 # Define the branding for the action in the GitHub Marketplace
 branding:
-  icon: "award"
-  color: "blue"
+  icon: "tag"
+  color: "orange"
