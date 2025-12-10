@@ -104,23 +104,17 @@ runs:
         echo "Executing: $CMD"
         $CMD
 
-        # Get the new version from Cargo.toml (handle workspace manifests)
-        if command -v toml &> /dev/null; then
-          NEW_VERSION=$(toml get Cargo.toml package.version 2>/dev/null | tr -d '"' || true)
+        # Get the new version using cargo metadata (handles workspace inheritance properly)
+        NEW_VERSION=$(cargo metadata --format-version 1 --no-deps 2>/dev/null | jq -r '.packages[0].version' || true)
+
+        # Fallback: try parsing workspace.package.version from root Cargo.toml
+        if [[ -z "$NEW_VERSION" || "$NEW_VERSION" == "null" ]]; then
+          NEW_VERSION=$(grep -A1 '\[workspace\.package\]' Cargo.toml | grep -E '^\s*version\s*=' | sed 's/.*=\s*"\([^"]*\)".*/\1/' || true)
         fi
 
-        # If no version found (workspace manifest), find first member crate
+        # Fallback: try package.version from root Cargo.toml
         if [[ -z "$NEW_VERSION" ]]; then
-          # Try to find a member crate's Cargo.toml
-          MEMBER_TOML=$(find . -path ./target -prune -o -name "Cargo.toml" -print 2>/dev/null | grep -v "^\./Cargo.toml$" | head -1)
-          if [[ -n "$MEMBER_TOML" ]]; then
-            NEW_VERSION=$(grep -m1 '^version' "$MEMBER_TOML" | cut -d '"' -f2)
-          fi
-        fi
-
-        # Fallback: try root Cargo.toml anyway
-        if [[ -z "$NEW_VERSION" ]]; then
-          NEW_VERSION=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2 || true)
+          NEW_VERSION=$(grep -A10 '^\[package\]' Cargo.toml | grep -E '^\s*version\s*=' | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/' || true)
         fi
 
         if [[ -z "$NEW_VERSION" ]]; then
