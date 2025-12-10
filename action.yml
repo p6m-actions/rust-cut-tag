@@ -28,18 +28,6 @@ inputs:
     description: "Apply to all workspace members"
     required: false
     default: "true"
-  no-git-commit:
-    description: "Do not create a git commit (cargo-release option)"
-    required: false
-    default: "false"
-  no-git-tag:
-    description: "Do not create a git tag (cargo-release option)"
-    required: false
-    default: "false"
-  no-git-push:
-    description: "Do not push to git (cargo-release option)"
-    required: false
-    default: "false"
 
 # Define the outputs for this action
 outputs:
@@ -88,18 +76,8 @@ runs:
           CMD="$CMD --workspace"
         fi
 
-        # Add git-related flags
-        if [[ "${{ inputs.no-git-commit }}" == "true" ]]; then
-          CMD="$CMD --no-git-commit"
-        fi
-
-        if [[ "${{ inputs.no-git-tag }}" == "true" ]]; then
-          CMD="$CMD --no-git-tag"
-        fi
-
-        if [[ "${{ inputs.no-git-push }}" == "true" ]]; then
-          CMD="$CMD --no-git-push"
-        fi
+        # Note: cargo release version only bumps versions in Cargo.toml files.
+        # It does NOT commit, tag, or push - we handle those steps manually below.
 
         echo "Executing: $CMD"
         $CMD
@@ -129,31 +107,34 @@ runs:
         echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
         echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-        # Handle custom commit and push logic if cargo-release didn't do it
-        if [[ "${{ inputs.no-git-commit }}" == "false" && "${{ inputs.commit-changes }}" == "true" ]]; then
-          # cargo-release already committed
-          :
-        elif [[ "${{ inputs.no-git-commit }}" == "true" && "${{ inputs.commit-changes }}" == "true" ]]; then
-          # We need to commit manually
+        # Commit version changes (cargo release version only modifies files, doesn't commit)
+        if [[ "${{ inputs.commit-changes }}" == "true" ]]; then
           COMMIT_MESSAGE="${{ inputs.commit-message }}"
           COMMIT_MESSAGE="${COMMIT_MESSAGE//\{version\}/$NEW_VERSION}"
 
           git add -A
           git commit -m "$COMMIT_MESSAGE" || echo "No changes to commit"
-
-          if [[ "${{ inputs.no-git-tag }}" == "true" ]]; then
-            git tag "$TAG"
-          fi
         fi
 
-        # Push if needed
-        if [[ "${{ inputs.skip-push }}" != "true" && "${{ inputs.no-git-push }}" == "true" ]]; then
+        # Create tag
+        git tag -f "$TAG"
+        echo "Created tag: $TAG"
+
+        # Push commit and tag to remote
+        if [[ "${{ inputs.skip-push }}" != "true" ]]; then
+          echo "Pushing changes to remote..."
+
           if [[ "${{ inputs.commit-changes }}" == "true" ]]; then
-            git push origin HEAD
+            # Use --force-with-lease for safety - fails if someone else pushed
+            git push origin HEAD --force-with-lease
+            echo "Pushed commit to origin"
           fi
-          if [[ "${{ inputs.no-git-tag }}" != "true" ]] || git tag -l "$TAG" | grep -q "$TAG"; then
-            git push origin "$TAG"
-          fi
+
+          # Force push tag in case it exists pointing to wrong commit
+          git push origin "$TAG" --force
+          echo "Pushed tag $TAG to origin"
+        else
+          echo "Skipping push (skip-push=true)"
         fi
 
 # Define the branding for the action in the GitHub Marketplace
