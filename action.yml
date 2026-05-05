@@ -42,17 +42,14 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Token Exchange
+      uses: p6m-actions/token-exchange@v2
+
     - name: Install cargo-release
       uses: baptiste0928/cargo-install@v3
       with:
         crate: cargo-release
         args: --no-default-features
-
-    - name: Configure Git
-      shell: bash
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
 
     - name: Bump version and create tag
       id: bump-version
