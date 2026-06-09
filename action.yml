@@ -113,8 +113,8 @@ runs:
           git commit -m "$COMMIT_MESSAGE" || echo "No changes to commit"
         fi
 
-        # Create tag
-        git tag -f "$TAG"
+        # Create annotated tag
+        git tag -a -f "$TAG" -m "Release $TAG"
         echo "Created tag: $TAG"
 
         # Push commit and tag to remote
