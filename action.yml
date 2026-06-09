@@ -114,7 +114,7 @@ runs:
         fi
 
         # Create annotated tag
-        git tag -a -f "$TAG" -m "Release $TAG"
+        git tag -a "$TAG" -m "Release $TAG"
         echo "Created tag: $TAG"
 
         # Push commit and tag to remote
@@ -127,8 +127,7 @@ runs:
             echo "Pushed commit to origin"
           fi
 
-          # Force push tag in case it exists pointing to wrong commit
-          git push origin "$TAG" --force
+          git push origin "$TAG"
           echo "Pushed tag $TAG to origin"
         else
           echo "Skipping push (skip-push=true)"
